@@ -25,6 +25,7 @@
 //2의 12승 = 4096(4kb)
 
 #define MAX(x, y) ((x) > (y) ? (x) : (y))         //x, y를 받아서 더 큰 값을 반환
+#define MIN(x, y) ((x) < (y) ? (x) : (y))         //x, y를 받아서 더 작은 값을 반환 +
 #define PACK(size, alloc) ((size) | (alloc))      //size와 alloc을 받아 or 연산을 한다.
 //size는 항상 8의 배수로 정렬되기 때문에 하위 3비트는 0, 맨 마지막 1비트를 할당 여부 표시
 #define GET(p) (*(unsigned int *)(p))             //p를 받아와서 unsigned int의 포인터로 형변환, 포인터의 값을 역참조
@@ -140,18 +141,30 @@ int mm_init(void)
 }
 
 //요청한 사이즈에 맞는 가용블록을 찾는 함수 // fast_fit 방식
-static void *find_fit(size_t asize)
+static void *best_fit(size_t asize)
 {
     void *bp;//void형 포인터 bp를 선언
+    void *best_p = NULL;//best_fit의 값을 저장할 포인터
 
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))   //heap의 시작 주소로부터 에필로그 헤더까지 반복한다. bp을 다음 bp로 변환하면서 이동
     {
-        if(!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))       //현재 bp가 할당되지 않았고 요청한 사지ㅡ보다 크거나 같으면
+        if(!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))       //현재 bp가 할당되지 않았고 요청한 사이즈보다 크거나 같으면
         {
-            return bp;                                                  //현재 bp를 반환한다.
+            if(asize == GET_SIZE(HDRP(bp)))                             //현재 bp가 요청 사이즈와 같다면 바로 반환
+            {
+                return bp;
+            }
+            if(best_p == NULL || GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(best_p))) //best_p가 NULL이거나 현재 bp의 사이즈가 best_p의 사이즈 보다 작을때
+            {
+                best_p = bp;                                           
+            }                      
         }
     }
-    return NULL;                                                        //모든 탐색이 끝나고 해당 크기가 없다면 NULL을 반환
+    if(best_p == NULL)
+    {
+        return NULL;                                                     //모든 탐색이 끝나고 해당 크기가 없다면 NULL을 반환
+    }
+    return best_p;                                                      //best_p를 반환
 }
 
 //할당 할 블록의 나머지 부분이 최소 블록 크기보다 크거나 같을 경우 분할하는 함수
@@ -196,7 +209,7 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE -1)) / DSIZE);    //요청 크기에 오버헤드(헤더 + 풋터) 추가 후, 8바이트 단위로 올림 정렬하여 asize 계산
     
     //요청 크기 이상인 가용 블록 찾기
-    if((bp = find_fit(asize)) != NULL)              //bp에 asize를 매개변수로 find_fit을 한 값을 대입, 해당 값이 NULL이 아닐때
+    if((bp = best_fit(asize)) != NULL)              //bp에 asize를 매개변수로 find_fit을 한 값을 대입, 해당 값이 NULL이 아닐때
     {   
         place(bp, asize);                           //남는 공간이 최소 블록 크기 이상이면 분할
         return bp;                                  //bp를 반환
