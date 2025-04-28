@@ -69,6 +69,8 @@ team_t team = {
  */
 
 static char *heap_listp;               //char형 포인터 heap_listp를 선언 
+void *next_bp = NULL; //void형 포인터 next_fit 선언
+
 
 //경계 태그 연결을 사용해서 인접 가용 블록들과 통합한다.
 static void *coalesce(void *bp)        
@@ -105,6 +107,7 @@ static void *coalesce(void *bp)
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0));        //PACK한 값을 다음 블록의 풋터가 가리키는 워드에 저장한다.(next 블록 끝이 합쳐진 블록 끝이 되기 때문)
         bp = PREV_BLKP(bp);                             //현재 bp를 이전 블록의 bp로 변경한다.
     }
+    next_bp = bp;
     return bp;                                          //현재의 bp값을 반환한다.
 }
 
@@ -121,8 +124,10 @@ static void *extend_heap(size_t words) // 매개변수로 words를 받아 void�
     PUT(HDRP(bp), PACK(size, 0));                                   //PACK(size와 alloc을 받아 둘을 합친다.) 여기서는 alloc을 0으로 한다. HDRP 메크로를 사용해 bp의 헤더를 찾는다. 헤더에 PACK 한 값을 대입한다.
     PUT(FTRP(bp), PACK(size, 0));                                   //PACK(size와 alloc을 받아 둘을 합친다.) 여기서는 alloc을 0으로 한다. FTRP 메크로를 사용해 bp의 풋터를 찾는다. 풋터에 PACK 한 값을 대입한다
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));                           //PACK(여기서 alloc을 1으로 설정한 값) 다음의 bp를 찾는다. 다음 bp의 헤더를 alloc 1로 설정한다. 새 에필로그 블록의 헤더가 된다.
-
-    return coalesce(bp);                                            //coalesce(bp)을 호출한다. coalesce 함수는 두 개의 가용블록을 통합하고 통합된 블록 포인터를 리턴한다. 앞 부분을 확인해서 합친다.
+    
+    bp = coalesce(bp);
+    next_bp = bp;
+    return bp;                                            //coalesce(bp)을 호출한다. coalesce 함수는 두 개의 가용블록을 통합하고 통합된 블록 포인터를 리턴한다. 앞 부분을 확인해서 합친다.
 }
 
 int mm_init(void)
@@ -140,31 +145,44 @@ int mm_init(void)
     return 0;                                                       //정상적인 동작이 끝나면 0을 반환한다.
 }
 
-//요청한 사이즈에 맞는 가용블록을 찾는 함수 // fast_fit 방식
-static void *best_fit(size_t asize)
+static void *next_fit(size_t asize)
 {
-    void *bp;//void형 포인터 bp를 선언
-    void *best_p = NULL;//best_fit의 값을 저장할 포인터
-
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))   //heap의 시작 주소로부터 에필로그 헤더까지 반복한다. bp을 다음 bp로 변환하면서 이동
+    void *bp;   //void형 포인터 bp를 선언
+    bp = next_bp;
+    if(next_bp == NULL)
     {
-        if(!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))       //현재 bp가 할당되지 않았고 요청한 사이즈보다 크거나 같으면
+        for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))   //heap의 시작 주소로부터 에필로그 헤더까지 반복한다. bp을 다음 bp로 변환하면서 이동
         {
-            if(asize == GET_SIZE(HDRP(bp)))                             //현재 bp가 요청 사이즈와 같다면 바로 반환
+            if(!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))       //현재 bp가 할당되지 않았고 요청한 사지ㅡ보다 크거나 같으면
             {
+                next_bp = bp;
+                return bp;                                                  //현재 bp를 반환한다.
+            }
+        }
+        return NULL;  
+    }
+    else
+    {
+        for(; GET_SIZE(HDRP(bp)) > 0;  bp = NEXT_BLKP(bp))
+        {
+            if(!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))
+            {
+                next_bp = bp;
                 return bp;
             }
-            if(best_p == NULL || GET_SIZE(HDRP(bp)) < GET_SIZE(HDRP(best_p))) //best_p가 NULL이거나 현재 bp의 사이즈가 best_p의 사이즈 보다 작을때
-            {
-                best_p = bp;                                           
-            }                      
         }
+    
+        for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp))   //heap의 시작 주소로부터 에필로그 헤더까지 반복한다. bp을 다음 bp로 변환하면서 이동
+        {
+            if(!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp))))       //현재 bp가 할당되지 않았고 요청한 사지ㅡ보다 크거나 같으면
+            {
+                next_bp = bp;
+                return bp;                                                  //현재 bp를 반환한다.
+            }
+        }
+        return NULL;     //모든 탐색이 끝나고 해당 크기가 없다면 NULL을 반환
     }
-    if(best_p == NULL)
-    {
-        return NULL;                                                     //모든 탐색이 끝나고 해당 크기가 없다면 NULL을 반환
-    }
-    return best_p;                                                      //best_p를 반환
+                                                   
 }
 
 //할당 할 블록의 나머지 부분이 최소 블록 크기보다 크거나 같을 경우 분할하는 함수
@@ -179,11 +197,13 @@ static void place(void *bp, size_t asize)               //bp와 asize를 매개�
         bp = NEXT_BLKP(bp);                             //bp는 다음 bp를 가리킨다.
         PUT(HDRP(bp), PACK(csize - asize, 0));          //PACK(분할된 사이즈) 헤더에 값을 대입 (새로운 헤더 생성)
         PUT(FTRP(bp), PACK(csize - asize, 0));          //PACK 값을 풋터에 워드에 대입한다. (기존의 풋터)
+        next_bp = bp;
     }
     else                                                //나머지 부분이 최소 블록보다 작을 경우
     {                                                   //전부를 할당한다.
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
+        next_bp = NEXT_BLKP(bp);    
     }
 }
 
@@ -209,7 +229,7 @@ void *mm_malloc(size_t size)
         asize = DSIZE * ((size + (DSIZE) + (DSIZE -1)) / DSIZE);    //요청 크기에 오버헤드(헤더 + 풋터) 추가 후, 8바이트 단위로 올림 정렬하여 asize 계산
     
     //요청 크기 이상인 가용 블록 찾기
-    if((bp = best_fit(asize)) != NULL)              //bp에 asize를 매개변수로 find_fit을 한 값을 대입, 해당 값이 NULL이 아닐때
+    if((bp = next_fit(asize)) != NULL)              //bp에 asize를 매개변수로 find_fit을 한 값을 대입, 해당 값이 NULL이 아닐때
     {   
         place(bp, asize);                           //남는 공간이 최소 블록 크기 이상이면 분할
         return bp;                                  //bp를 반환
